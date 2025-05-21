@@ -1,0 +1,7 @@
+{
+  "functions": [
+    {
+      "source": "fetch_news"
+    }
+  ]
+}
