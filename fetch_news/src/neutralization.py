@@ -6,7 +6,7 @@ from threading import Lock
 import queue
 import datetime
 
-from src.storage import store_neutral_news, update_news_with_neutral_scores, update_existing_neutral_news
+from src.storage import store_neutral_news, update_news_with_neutral_scores, update_existing_neutral_news, normalize_datetime, ensure_standard_datetime
 from .config import initialize_firebase
 from google.cloud import firestore
 MIN_VALID_SOURCES = 3  # Minimum number of valid sources required
@@ -181,6 +181,9 @@ def neutralize_and_more(groups_prepared):
         skipped_update_count = 0
         skipped_update_groups = []
         
+        skipped_creation_count = 0
+        skipped_creation_groups = []
+        
         rate_limited_count = 0
         rate_limited_groups = []
 
@@ -194,8 +197,22 @@ def neutralize_and_more(groups_prepared):
                 # Generate neutral analysis for this single group
                 response = generate_neutral_analysis_single(group_info, is_update)
                 
+                # Handle different response types
+                if isinstance(response, tuple) and len(response) == 2 and response[0] is None:
+                    failure_reason = response[1]
+                    if failure_reason == "rate_limit":
+                        # Add to rate-limited queue for later processing
+                        api_rate_limiter.queue_rate_limited_group(group_info)
+                        return {"success": False, "error": "API limit or quota exceeded", "group": group, "rate_limited": True}
+                    elif failure_reason == "insufficient_sources":
+                        # Don't queue for retry, just mark as skipped
+                        return {"success": False, "error": "Insufficient valid sources after deduplication", "group": group, "insufficient_sources": True}
+                    else:
+                        # Unknown failure type
+                        return {"success": False, "error": f"Failed with reason: {failure_reason}", "group": group}
+                
                 if response is None:
-                    # Add to rate-limited queue for later processing
+                    # For backward compatibility, treat as rate-limited
                     api_rate_limiter.queue_rate_limited_group(group_info)
                     return {"success": False, "error": "API limit or quota exceeded", "group": group, "rate_limited": True}
                 
@@ -244,7 +261,7 @@ def neutralize_and_more(groups_prepared):
             """Process all groups with the specified worker count"""
             nonlocal neutralized_count, neutralized_groups, updated_count, updated_groups
             nonlocal skipped_update_count, skipped_update_groups, updated_neutral_scores_count, updated_neutral_scores_news
-            nonlocal rate_limited_count, rate_limited_groups
+            nonlocal rate_limited_count, rate_limited_groups, skipped_creation_count, skipped_creation_groups
             
             worker_count = min(worker_count, len(groups_to_update) + len(groups_to_neutralize))
             print(f"ℹ️ Processing {len(groups_to_update)} updates and {len(groups_to_neutralize)} new neutralizations with {worker_count} workers")
@@ -273,6 +290,12 @@ def neutralize_and_more(groups_prepared):
                     if result.get("rate_limited"):
                         rate_limited_count += 1
                         rate_limited_groups.append(group_id)
+                        continue
+                        
+                    # Check if this group had insufficient sources
+                    if result.get("insufficient_sources"):
+                        skipped_creation_count += 1
+                        skipped_creation_groups.append(group_id)
                         continue
                         
                     if result["success"]:
@@ -331,6 +354,7 @@ def neutralize_and_more(groups_prepared):
         print(f"Neutralized groups: {neutralized_groups}")
         print(f"Groups updated with new neutralization: {updated_groups}")
         print(f"Groups with skipped updates: {skipped_update_groups}")
+        print(f"Groups with skipped neutralizations due to insufficient sources: {skipped_creation_groups}")
         print(f"Rate-limited groups (retried): {rate_limited_groups}")
         return neutralized_count + updated_count
 
@@ -359,14 +383,18 @@ def sort_groups_by_recency(groups):
             for source in group.get('sources', []):
                 # Try pub_date first, then fall back to created_at
                 date = source.get('pub_date') or source.get('created_at')
-                if date and (most_recent is None or date > most_recent):
-                    most_recent = date
+                if date:
+                    # Normalize the date to avoid timezone comparison issues
+                    date = normalize_datetime(date)
+                    
+                    if most_recent is None or date > most_recent:
+                        most_recent = date
             return most_recent or datetime.datetime.min
-        except Exception:
+        except Exception as e:
+            print(f"Error getting date: {str(e)}")
             return datetime.datetime.min
     
     # Sort groups by most recent date (newest first)
-    import datetime
     return sorted(groups, key=get_most_recent_date, reverse=True)
 
 def validate_initial_sources(sources, group_id):
@@ -437,7 +465,8 @@ def check_if_update_needed(group_id, valid_sources):
         significant_increase = (
             (existing_count >= 3 and existing_count < 6 and current_count >= 6) or
             (existing_count >= 6 and existing_count < 9 and current_count >= 9) or
-            (existing_count >= 9 and existing_count < 12 and current_count >= 12)
+            (existing_count >= 9 and existing_count < 12 and current_count >= 12) or
+            (existing_count >= 12 and existing_count < 14 and current_count >= 14)
         )
         
         # Skip update if neither condition is met
@@ -623,7 +652,7 @@ def generate_neutral_analysis_single(group_info, is_update):
         # Step 1: Validate initial sources
         initial_sources = validate_initial_sources(sources, group_id)
         if not initial_sources:
-            return None
+            return (None, "insufficient_sources")
             
         # Step 2: Select one source per media (deduplicate)
         valid_sources, sources_to_deduplicate = deduplicate_sources_by_medium(initial_sources)
@@ -646,7 +675,7 @@ def generate_neutral_analysis_single(group_info, is_update):
         # Step 4: Apply source limits and handle insufficient sources
         valid_sources, group_dict = apply_source_limits(valid_sources, group_id, group_dict, SOURCES_LIMIT, is_update)
         if not valid_sources:
-            return None
+            return (None, "insufficient_sources")
             
         # Step 5: Prepare sources for API call
         system_message = """
@@ -692,8 +721,8 @@ def generate_neutral_analysis_single(group_info, is_update):
         
         # Handle errors
         if error == "rate_limit":
-            # Return None to indicate rate limit - this will be queued for later
-            return None
+            # Return None with reason to indicate rate limit - this will be queued for later
+            return (None, "rate_limit")
         
         # Handle token limit errors
         if error == "context_length" and len(valid_sources) > MIN_VALID_SOURCES:
@@ -723,7 +752,7 @@ def generate_neutral_analysis_single(group_info, is_update):
             
             # If still failing, we need to give up
             if not result:
-                return None
+                return (None, "rate_limit")
         
         return result, group_dict
         
@@ -731,7 +760,7 @@ def generate_neutral_analysis_single(group_info, is_update):
         print(f"Error in generate_neutral_analysis_single for group {group_id}: {str(e)}")
         import traceback
         traceback.print_exc()
-        return None
+        return (None, "error")
     
 def delete_invalid_sources_from_db(is_update, sources_to_deduplicate, group_dict, group_id):
     """

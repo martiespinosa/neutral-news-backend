@@ -371,7 +371,7 @@ def _process_cluster_with_references(df, cluster_items, db_cluster_id,
             else:
                 # High similarity - assign to target group
                 df.loc[(df['temp_group'] == db_cluster_id) & (df['group'].isna()), 'group'] = target_group
-                print(f"ℹ️ High similarity ({similarity:.3f}) - assigned to group {target_group}")
+                print(f"ℹ️ High similarity ({similarity:.3f}) - assigned to group {target_group}, {new_non_reference_items} new items")
                 
         all_group_ids.add(target_group)
 
