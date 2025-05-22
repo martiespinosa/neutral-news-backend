@@ -1,15 +1,49 @@
 steps:
 # Build the container image
 - name: 'gcr.io/cloud-builders/docker'
-  # args: ['build', '-t', 'gcr.io/neutralnews-ca548/fetch-news-image', '.']
-  # Add cacheFrom to potentially speed up builds by reusing layers from previous builds
-  # Note: This requires the previous image to exist in the registry.
-  args: ['build', '--cache-from', 'gcr.io/neutralnews-ca548/fetch-news-image', '-t', 'gcr.io/neutralnews-ca548/fetch-news-image', '.']
+  args: [
+    'build', 
+    '--cache-from', 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image', 
+    '-t', 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image', 
+    '.'
+  ]
 
-# Push the container image to Container Registry
+# Push the container image to Artifact Registry
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/neutralnews-ca548/fetch-news-image']
+  args: ['push', 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image']
 
-# Define the image to be pushed after the build is complete
+# Add a tag with Build ID for versioning
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'tag', 
+    'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image', 
+    'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image:${BUILD_ID}'
+  ]
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image:${BUILD_ID}']
+
+# Clean up old images (keep only the 2 most recent)
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      # List all image digests ordered by timestamp, skip the 2 newest, and delete the rest
+      DIGESTS=$$(gcloud artifacts docker images list us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image \
+        --format="value(digest)" --sort-by=~UPDATE_TIME | tail -n +3)
+      
+      if [ -n "$$DIGESTS" ]; then
+        for DIGEST in $$DIGESTS; do
+          echo "Deleting image with digest: $$DIGEST"
+          gcloud artifacts docker images delete \
+            us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image@$$DIGEST \
+            --quiet
+        done
+      else
+        echo "No old images to clean up"
+      fi
+
+# Define the images to be pushed
 images:
-- 'gcr.io/neutralnews-ca548/fetch-news-image'
+- 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image'
+- 'us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image:${BUILD_ID}'

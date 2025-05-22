@@ -8,7 +8,7 @@ Write-Host "Cloud Build submission successful."
 
 Write-Host "Deploying service to Cloud Run..."
 gcloud run deploy fetch-news-service `
-  --image gcr.io/neutralnews-ca548/fetch-news-image `
+  --image us-central1-docker.pkg.dev/neutralnews-ca548/neutral-news-repo/fetch-news-image `
   --platform managed `
   --region us-central1 `
   --memory 4096M `
