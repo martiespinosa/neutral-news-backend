@@ -36,19 +36,41 @@ RUN mkdir -p /app/model && \
     model.save('/app/model'); \
     print('---> Model downloaded and saved to /app/model')"
 
-# Final stage with minimal dependencies
-FROM python:${PYTHON_VERSION}-slim
+# Create a health check Python script since shell scripts can't be used in distroless
+RUN echo 'import http.server, socketserver\n\
+class HealthHandler(http.server.BaseHTTPRequestHandler):\n\
+    def do_GET(self):\n\
+        if self.path == "/_ah/health":\n\
+            self.send_response(200)\n\
+            self.send_header("Content-type", "text/plain")\n\
+            self.end_headers()\n\
+            self.wfile.write(b"Healthy")\n\
+\n\
+def start_health_server():\n\
+    import threading\n\
+    def run_server():\n\
+        with socketserver.TCPServer(("", 8081), HealthHandler) as httpd:\n\
+            httpd.serve_forever()\n\
+    t = threading.Thread(target=run_server, daemon=True)\n\
+    t.start()\n\
+' > /app/health_check.py
 
-# Install curl for healthcheck and clean up in a single layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Prepare application code
+COPY . .
+
+# Remove unnecessary files to reduce image size
+RUN find /usr/local/lib/python${PYTHON_VERSION} -type d -name "tests" -o -name "examples" | xargs rm -rf && \
+    find /usr/local -name '*.pyc' -delete && \
+    find /app -type d -name __pycache__ -exec rm -rf {} +
+
+# Final stage with distroless Python
+FROM gcr.io/distroless/python3:nonroot
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PORT=8080 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/usr/local/bin:$PATH"
+    PYTHONPATH="/app:${PYTHONPATH}"
 
 # Set working directory
 WORKDIR /app
@@ -59,28 +81,15 @@ COPY --from=builder /usr/local /usr/local
 # Copy pre-downloaded model
 COPY --from=builder /app/model /app/model
 
-# Copy application code
-COPY . .
+# Copy application code and health check
+COPY --from=builder /app /app
 
-# Create user, set permissions, and create health check endpoint all in one layer
-RUN useradd -m appuser && \
-    chown -R appuser:appuser /app && \
-    chmod -R 755 /usr/local/bin && \
-    which functions-framework && \
-    echo '#!/bin/sh\n\
-echo "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHealthy"' > /app/health.sh && \
-    chmod +x /app/health.sh && \
-    find /app -type d -name __pycache__ -exec rm -rf {} +
+# Expose ports (main app and health check)
+EXPOSE 8080 8081
 
-# Switch to non-root user
-USER appuser
-
-# Expose port
-EXPOSE 8080
-
-# Improved health check
+# Health check using Python HTTP request instead of curl (distroless has no curl)
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/_ah/health || exit 1
+  CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/_ah/health')"]
 
-# Set entrypoint
-CMD ["functions-framework", "--target=fetch_news", "--port=8080"]
+# Set entrypoint (must use exec form for distroless)
+CMD ["python3", "-m", "functions_framework", "--target=fetch_news", "--port=8080"]
