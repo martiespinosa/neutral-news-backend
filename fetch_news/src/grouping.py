@@ -1,65 +1,34 @@
 import os
 import traceback
 from .storage import update_news_embedding, get_group_item_count, get_group_items, get_all_group_ids
-import pandas as pd
-import numpy as np
 
+# Direct imports instead of lazy loading
+import numpy as np
+import pandas as pd
+from sentence_transformers import SentenceTransformer
+from sklearn.neighbors import NearestNeighbors, sort_graph_by_row_values
+from scipy.sparse import lil_matrix
+from sklearn.cluster import DBSCAN
+# Import the singleton
+from src.singletons.sbert_singleton import get_sbert
+
+
+# Global variables
 _model = None
-_nlp_modules_loaded = False
 MIN_VALID_SOURCES = 3
 
-def _load_nlp_modules():
-    """Lazily import NLP-related modules to speed up cold starts"""
-    global _nlp_modules_loaded
-    if not _nlp_modules_loaded:
-        global np, pd, SentenceTransformer, NearestNeighbors, lil_matrix, DBSCAN, sort_graph_by_row_values
+# Replace the lazy loading function with a simpler model loader
+def get_sentence_transformer_model():
+    """Get the model from the singleton"""
+    return get_sbert()
 
-        import numpy as np
-        import pandas as pd
-        from sentence_transformers import SentenceTransformer
-        from sklearn.neighbors import NearestNeighbors, sort_graph_by_row_values
-        from scipy.sparse import lil_matrix
-        from sklearn.cluster import DBSCAN
 
-        _nlp_modules_loaded = True
-
-def get_sentence_transformer_model(retry_count=3):
-    """Get or initialize the sentence transformer model.
-    In Cloud Functions, attempts to load from a bundled path first.
-    Falls back to downloading if bundled load fails or if running locally.
-    """
-    _load_nlp_modules()
-
-    global _model
-    if _model is not None:
-        return _model
-
-    # model_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    # Path where the model is expected to be in the Docker image
-    bundled_model_path = "/app/model"
-
-    # --- Attempt 1: Load from bundled path if in Cloud Function ---
-    if os.getenv("FUNCTION_TARGET"):
-        print(f"ℹ️ Cloud Function environment detected. Attempting to load model from bundled path: {bundled_model_path}")
-        try:
-            if os.path.exists(bundled_model_path):
-                _model = SentenceTransformer(bundled_model_path)
-                print(f"✅ Model loaded successfully from bundled path: {bundled_model_path}")
-                return _model
-            else:
-                 print(f"⚠️ Bundled model path not found: {bundled_model_path}")
-        except Exception as e:
-            print(f"⚠️ Failed to load model from bundled path {bundled_model_path}: {type(e).__name__}: {str(e)}")
-            # print("ℹ️ Falling back to downloading the model.")  # Uncommented this line
-            # If loading from bundled path fails, proceed to download logic below
-    return _model
 def group_news(news_for_grouping: list) -> list:
     """
     Groups news based on their semantic similarity
     """
     try:
         print("ℹ️ Starting news grouping...")
-        _load_nlp_modules()
         
         # Step 1: Setup DataFrame and handle references
         df, has_reference_news, should_return_early, early_result = setup_news_dataframe(news_for_grouping)

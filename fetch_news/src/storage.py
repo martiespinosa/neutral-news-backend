@@ -1,7 +1,10 @@
+import time
+import json
+import traceback
+import os
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, unquote
-from .config import initialize_firebase
-import traceback
+from src.singletons.firebase_singleton import get_firebase_db
 
 def parse_pub_date(date_str):
     """
@@ -67,7 +70,7 @@ def store_news_in_firestore(news_list):
         print("No news to store")
         return 0
     
-    db = initialize_firebase()
+    db = get_firebase_db()
     batch = db.batch()
     news_count = 0
     current_batch = 0
@@ -113,7 +116,7 @@ def get_all_group_ids() -> set:
     """
     Get all unique group IDs from the 'neutral_news' collection in Firestore
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
     groups_query = db.collection('neutral_news').select(['group'])
     groups_list = list(groups_query.stream())
     
@@ -135,7 +138,7 @@ def get_news_for_grouping() -> tuple:
     Returns:
         tuple: (news_for_grouping, news_docs) - List of news items for grouping and dictionary of news documents
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
 
     RECENT_GROUPS_HOURS = 48 # Number of hours to look back for recent groups
     REFERENCE_NEWS_HOURS = 48 # Number of hours to look back for reference news
@@ -216,7 +219,7 @@ def update_groups_in_firestore(groups_data: list, news_docs: dict) -> tuple:
     Returns:
         tuple: (updated_count, created_count, updated_groups, created_groups) - Numbers and sets of groups
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
     batch = db.batch()
     updated_count = 0
     created_count = 0
@@ -279,7 +282,7 @@ def update_news_with_neutral_scores(sources, neutralization_result, sources_to_u
     Actualiza las noticias originales con sus puntuaciones de neutralidad.
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         batch = db.batch()
         updated_count = 0
         updated_news_ids = set()
@@ -328,7 +331,7 @@ def load_all_news_links_from_medium(medium):
     It prints the time it took to load the links.
     """
 
-    db = initialize_firebase()
+    db = get_firebase_db()
     news_query = db.collection('news').where('source_medium', '==', medium)
     news_docs = list(news_query.stream())
     
@@ -381,7 +384,7 @@ def store_neutral_news(group, neutralization_result, source_ids, sources_to_unas
         sources_to_unassign: Diccionario con IDs de fuentes a desasignar del grupo
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
 
         if group is not None:
             group = int(float(group))
@@ -445,7 +448,7 @@ def update_existing_neutral_news(group, neutralization_result, source_ids, sourc
     Actualiza un documento existente de noticias neutrales en lugar de crear uno nuevo.
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         
         if group is not None:
             group = int(float(group))
@@ -523,7 +526,7 @@ def get_most_neutral_image(source_ids, source_ratings):
         or (None, None) if no news has a valid image or an error occurs
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         
         # Obtener las noticias originales
         news_refs = [db.collection('news').document(news_id) for news_id in source_ids]
@@ -751,7 +754,7 @@ def delete_old_news(hours=72):
     """
     Delete news older than specified hours
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
     time_threshold = datetime.now() - timedelta(hours=hours)
     
     # Query for news older than threshold
@@ -811,7 +814,7 @@ def update_news_embedding(news_ids, embeddings):
     """
     Update the embeddings list of news items in smaller batches.
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
     if len(news_ids) != len(embeddings):
         print("Error: Mismatch between number of news IDs and embeddings.")
         return 0
@@ -872,7 +875,7 @@ def get_group_item_count(group_id):
         int: The number of news items in the specified group
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         news_ref = db.collection('news')
         
         # Query for documents with this group ID and count them
@@ -895,7 +898,7 @@ def get_group_items(group_id):
         list: List of dictionaries containing news items
     """
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         news_ref = db.collection('news')
         
         # Query for documents with this group ID

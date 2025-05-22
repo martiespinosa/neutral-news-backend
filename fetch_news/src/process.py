@@ -4,7 +4,7 @@ from src.grouping import group_news
 from src.storage import get_news_for_grouping
 from src.storage import update_groups_in_firestore
 from src.neutralization import neutralize_and_more
-from src.config import initialize_firebase
+from src.singletons.firebase_singleton import get_firebase_db
 
 def process_news_groups():
     try:
@@ -85,7 +85,7 @@ def prepare_groups_for_neutralization(grouped_news) -> list:
                     })
     
     # Fetch all additional sources from the database for each group
-    db = initialize_firebase()
+    db = get_firebase_db()
     all_group_ids = list(grupos.keys())
     processed_ids = {source["id"] for group_sources in grupos.values() for source in group_sources}
     

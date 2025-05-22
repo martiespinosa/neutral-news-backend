@@ -36,39 +36,28 @@ RUN mkdir -p /app/model && \
     model.save('/app/model'); \
     print('---> Model downloaded and saved to /app/model')"
 
-# Create a health check Python script since shell scripts can't be used in distroless
-RUN echo 'import http.server, socketserver\n\
-class HealthHandler(http.server.BaseHTTPRequestHandler):\n\
-    def do_GET(self):\n\
-        if self.path == "/_ah/health":\n\
-            self.send_response(200)\n\
-            self.send_header("Content-type", "text/plain")\n\
-            self.end_headers()\n\
-            self.wfile.write(b"Healthy")\n\
-\n\
-def start_health_server():\n\
-    import threading\n\
-    def run_server():\n\
-        with socketserver.TCPServer(("", 8081), HealthHandler) as httpd:\n\
-            httpd.serve_forever()\n\
-    t = threading.Thread(target=run_server, daemon=True)\n\
-    t.start()\n\
-' > /app/health_check.py
+# Create health_check.py file
+COPY health_check.py /app/health_check.py
 
 # Prepare application code
 COPY . .
+
+# Preload NLP modules to optimize startup
+RUN python -c "import numpy; import pandas; import sklearn.neighbors; import sklearn.cluster; import scipy.sparse; \
+    print('---> Successfully preloaded all ML dependencies')"
 
 # Remove unnecessary files to reduce image size
 RUN find /usr/local/lib/python${PYTHON_VERSION} -type d -name "tests" -o -name "examples" | xargs rm -rf && \
     find /usr/local -name '*.pyc' -delete && \
     find /app -type d -name __pycache__ -exec rm -rf {} +
 
-# Final stage with distroless Python
-FROM gcr.io/distroless/python3:nonroot
+# Final stage - switch to standard Python image for troubleshooting
+FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PORT=8080 \
+    FUNCTION_TARGET=fetch_news \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="/app:${PYTHONPATH}"
 
@@ -84,12 +73,24 @@ COPY --from=builder /app/model /app/model
 # Copy application code and health check
 COPY --from=builder /app /app
 
-# Expose ports (main app and health check)
+# Create a symlink to address Cloud Run's specific path expectation
+RUN ln -sf $(which python3) /app/python3 && \
+    chmod +x /app/python3
+
+RUN echo '#!/bin/bash\n\
+echo "Starting application..."\n\
+echo "Python version: $(python3 --version)"\n\
+echo "Working directory: $(pwd)"\n\
+echo "Files in /app: $(ls -la /app)"\n\
+echo "Environment: $(printenv | sort)"\n\
+\n\
+# Start using startup.py instead of simple.py\n\
+python3 /app/startup.py\n\
+' > /app/run.sh && \
+    chmod +x /app/run.sh
+
+# Expose ports
 EXPOSE 8080 8081
 
-# Health check using Python HTTP request instead of curl (distroless has no curl)
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/_ah/health')"]
-
-# Set entrypoint (must use exec form for distroless)
-CMD ["python3", "-m", "functions_framework", "--target=fetch_news", "--port=8080"]
+# Use the shell script as entrypoint
+ENTRYPOINT ["/app/run.sh"]

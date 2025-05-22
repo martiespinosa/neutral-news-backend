@@ -5,9 +5,10 @@ import time
 from threading import Lock
 import queue
 import datetime
+from src.singletons.openai_singleton import get_openai_client
+from src.singletons.firebase_singleton import get_firebase_db
 
 from src.storage import store_neutral_news, update_news_with_neutral_scores, update_existing_neutral_news, normalize_datetime, ensure_standard_datetime
-from .config import initialize_firebase
 from google.cloud import firestore
 MIN_VALID_SOURCES = 3  # Minimum number of valid sources required
 
@@ -90,7 +91,7 @@ def neutralize_and_more(groups_prepared):
         print("No news groups to neutralize")
         return 0
     
-    db = initialize_firebase()
+    db = get_firebase_db()
     
     try:
         groups_to_neutralize = []
@@ -442,7 +443,7 @@ def check_if_update_needed(group_id, valid_sources):
     """Check if an update is necessary for existing neutralization."""    
     group_dict = {}
     try:
-        db = initialize_firebase()
+        db = get_firebase_db()
         neutral_doc_ref = db.collection('neutral_news').document(str(group_id))
         neutral_doc = neutral_doc_ref.get()
         
@@ -527,7 +528,7 @@ def handle_insufficient_sources(valid_sources, group_id, group_dict, is_update=F
         source_id = remaining_source.get('id')
         if source_id:
             try:
-                db = initialize_firebase()
+                db = get_firebase_db()
                 db.collection('news').document(source_id).update({
                     'group': None,
                     'updated_at': None
@@ -637,14 +638,7 @@ def generate_neutral_analysis_single(group_info, is_update):
         # If we had to enforce a cooldown, re-check the limit
         api_rate_limiter.check_limit(group_id)
 
-    # Get API key and create client
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        print("ERROR: OPENAI_API_KEY environment variable not set.")
-        raise ValueError("OpenAI API Key not configured.")
-        
-    api_key = api_key.strip()
-    client = OpenAI(api_key=api_key)
+    client = get_openai_client()
     
     SOURCES_LIMIT = 16  # Maximum number of sources to process
     
@@ -767,7 +761,7 @@ def delete_invalid_sources_from_db(is_update, sources_to_deduplicate, group_dict
     Delete invalid sources from the database.
     This is called after processing all groups to ensure that we don't hit rate limits.
     """
-    db = initialize_firebase()
+    db = get_firebase_db()
     for source in sources_to_deduplicate:
         source_id = source.get('id')
         if source_id:
