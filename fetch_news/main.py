@@ -1,20 +1,24 @@
-from firebase_functions import scheduler_fn, options
 import traceback
+from flask import jsonify
 from src.functions.scheduled_tasks import fetch_news_task
 
-# Set the region for deployment
-options.set_global_options(region=options.SupportedRegion.US_CENTRAL1)
-
-@scheduler_fn.on_schedule(
-    schedule="0 * * * *",  # Ejecutar a cada hora en punto (minuto 0)
-    memory=4096,
-    timeout_sec=540
-)
-def fetch_news(event: scheduler_fn.ScheduledEvent) -> None:
+def fetch_news(request):
+    """HTTP Cloud Function that processes a request from Cloud Scheduler.
+    
+    Args:
+        request (flask.Request): The request object.
+        
+    Returns:
+        The response text, or any set of values that can be turned into a
+        Response object using `make_response`.
+    """
     print("Ejecutando fetch_news function...")
     try:
         fetch_news_task()
         print("fetch_news task completada.")
+        return jsonify({"success": True, "message": "News fetching completed successfully"})
     except Exception as e:
-        print(f"Error en fetch_news function: {str(e)}")
+        error_message = f"Error en fetch_news function: {str(e)}"
+        print(error_message)
         traceback.print_exc()
+        return jsonify({"success": False, "error": error_message}), 500

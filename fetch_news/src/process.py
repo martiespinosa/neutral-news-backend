@@ -19,7 +19,7 @@ def process_news_groups():
         grouped_news: list = group_news(news_for_grouping)
         groups_prepared = prepare_groups_for_neutralization(grouped_news)
         print(f"ℹ️ Prepared {len(groups_prepared)} news groups for neutralization")
-        
+        return
         # Neutralizar los grupos recién creados y guardarlos
         neutralized_count = neutralize_and_more(groups_prepared)
         print(f"Neutralized {neutralized_count} groups")
