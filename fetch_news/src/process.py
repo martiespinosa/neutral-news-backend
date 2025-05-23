@@ -6,17 +6,17 @@ from src.storage import update_groups_in_firestore
 from src.neutralization import neutralize_and_more
 from src.singletons.firebase_singleton import get_firebase_db
 
-def process_news_groups():
+def process_news_groups(ml_loading_thread=None):
     try:
-        # Get news for grouping with the option to fetch all news documents
+        # Get news for grouping
         news_for_grouping, news_docs = get_news_for_grouping()
         
         if not news_for_grouping:
             print("No news to group")
             return 0
-                
-        # Perform grouping process directly
-        grouped_news: list = group_news(news_for_grouping)
+
+        # Pass ml_loading_thread to group_news
+        grouped_news: list = group_news(news_for_grouping, ml_loading_thread)
         groups_prepared = prepare_groups_for_neutralization(grouped_news)
         print(f"ℹ️ Prepared {len(groups_prepared)} news groups for neutralization")
         return

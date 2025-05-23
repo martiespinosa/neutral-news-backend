@@ -10,11 +10,11 @@ def fetch_news(request):
     try:
         start_time = time.time()
         
-        # Start RSS fetching and ML preloading in parallel
+        # Start ML preloading in background
         ml_thread = threading.Thread(target=preload_ml_dependencies, daemon=True)
         ml_thread.start()
         
-        # Run RSS fetching in main thread (I/O bound operation)
+        # Run RSS fetching in main thread
         print("🔍 Starting RSS fetching while ML dependencies load in background...")
         from src.parsers import fetch_all_rss
         from src.storage import store_news_in_firestore
@@ -22,15 +22,11 @@ def fetch_news(request):
         stored_count = store_news_in_firestore(all_news)
         print(f"✅ RSS fetching and storage completed in {time.time() - start_time:.2f} seconds")
         
-        # Wait for ML preloading to complete if still running
-        if ml_thread.is_alive():
-            print("⏳ Waiting for ML dependencies to finish loading...")
-            ml_thread.join()
-        
-        # Now run the ML-intensive tasks with dependencies ready
+        # Start ML processing WITHOUT waiting for dependencies yet
         print("🧠 Starting ML processing tasks...")
         from src.process import process_news_groups
-        process_news_groups()
+        # Pass the ML thread to process_news_groups
+        process_news_groups(ml_thread)
         
         total_time = time.time() - start_time
         print(f"✅ Total execution completed in {total_time:.2f} seconds")

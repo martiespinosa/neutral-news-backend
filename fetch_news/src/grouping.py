@@ -23,7 +23,7 @@ def get_sentence_transformer_model():
     return get_sbert()
 
 
-def group_news(news_for_grouping: list) -> list:
+def group_news(news_for_grouping: list, ml_loading_thread) -> list:
     """
     Groups news based on their semantic similarity
     """
@@ -36,7 +36,7 @@ def group_news(news_for_grouping: list) -> list:
             return early_result
         
         # Step 2: Process embeddings
-        all_items_for_clustering_df, embeddings_norm = process_embeddings(df)
+        all_items_for_clustering_df, embeddings_norm = process_embeddings(df, ml_loading_thread)
         
         # Step 3: Perform clustering if we have valid embeddings
         clustering_succeeded = perform_clustering(all_items_for_clustering_df, embeddings_norm, df, has_reference_news)
@@ -105,7 +105,7 @@ def setup_news_dataframe(news_for_grouping: list) -> tuple:
     
     return df, has_reference_news, False, None
 
-def process_embeddings(df: pd.DataFrame) -> tuple:
+def process_embeddings(df: pd.DataFrame, ml_loading_thread=None) -> tuple:
     """
     Process and generate embeddings for news items
     Returns tuple of (all_items_for_clustering_df, embeddings_norm)
@@ -117,9 +117,12 @@ def process_embeddings(df: pd.DataFrame) -> tuple:
     df_needing_embeddings = pd.DataFrame(get_news_not_embedded(df.copy()))
 
     if not df_needing_embeddings.empty:
+        if ml_loading_thread and ml_loading_thread.is_alive():
+            print("⏳ Waiting for ML dependencies to finish loading...")
+            ml_loading_thread.join()
         print("ℹ️ Loading embeddings model...")
         model = get_sentence_transformer_model()
-        
+
         print("ℹ️ Extracting titles and descriptions for new embeddings...")
         if not all(col in df_needing_embeddings.columns for col in ["title", "id"]):
              raise ValueError("DataFrame for new embeddings is missing 'title' or 'id'.")
