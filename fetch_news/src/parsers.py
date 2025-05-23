@@ -394,7 +394,7 @@ def parse_xml(data, medium, scraper, robots_checker):
         scraper.logger.error(f"Error parsing XML feed for medium {medium}: {e}")
     return []
 
-def fetch_all_rss(max_workers=10):
+def fetch_all_rss(max_workers=16):
     scraper = NewsScraper(
         min_word_threshold=100, 
         min_scraped_words=100, 

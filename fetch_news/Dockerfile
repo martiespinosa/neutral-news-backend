@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir --default-timeout=1000 torch>=1.9.0 --extra-index
     pip install --no-cache-dir --default-timeout=1000 -r requirements.txt && \
     rm -rf ~/.cache/pip
 
-# Download and cache the model in a separate step (kept separate for better caching)
+# Download and cache the model in a separate step
 RUN mkdir -p /app/model && \
     python -c "from sentence_transformers import SentenceTransformer; \
     model_name = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'; \
@@ -39,16 +39,12 @@ RUN mkdir -p /app/model && \
 # Prepare application code
 COPY . .
 
-# Preload NLP modules to optimize startup
-RUN python -c "import numpy; import pandas; import sklearn.neighbors; import sklearn.cluster; import scipy.sparse; \
-    print('---> Successfully preloaded all ML dependencies')"
-
 # Remove unnecessary files to reduce image size
 RUN find /usr/local/lib/python${PYTHON_VERSION} -type d -name "tests" -o -name "examples" | xargs rm -rf && \
     find /usr/local -name '*.pyc' -delete && \
     find /app -type d -name __pycache__ -exec rm -rf {} +
 
-# Final stage - switch to standard Python image for troubleshooting
+# Final stage - switch to standard Python image for running
 FROM python:3.10-slim
 
 # Set environment variables
@@ -81,12 +77,12 @@ echo "Working directory: $(pwd)"\n\
 echo "Files in /app: $(ls -la /app)"\n\
 echo "Environment: $(printenv | sort)"\n\
 \n\
-# Start using startup.py instead of simple.py\n\
+# Start using startup.py\n\
 python3 /app/startup.py\n\
 ' > /app/run.sh && \
     chmod +x /app/run.sh
 
-# Expose ports
+# Expose only the main application port
 EXPOSE 8080
 
 # Use the shell script as entrypoint

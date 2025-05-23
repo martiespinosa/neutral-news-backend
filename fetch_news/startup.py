@@ -2,65 +2,45 @@ import os
 import sys
 import time
 import importlib
-from src.singletons.sbert_singleton import get_sbert
 
-def preload_dependencies():
-    """Preload dependencies to reduce runtime initialization overhead"""
+def preload_minimal_dependencies():
+    """Preload only the essential dependencies needed for startup"""
     start = time.time()
-    print("⏳ Preloading dependencies to optimize execution time...")
+    print("⏳ Preloading minimal dependencies for startup...")
     
-    # Preload core ML modules - only valid module paths
+    # Only preload functions_framework and other essential modules
+    # Heavy ML modules will be loaded in parallel during execution
     modules = [
-        "numpy", 
-        "pandas",
-        "sentence_transformers",
-        "sklearn.neighbors",
-        "sklearn.cluster",
-        "scipy.sparse",
-        "functions_framework"
+        "functions_framework",
+        "flask",
+        "json",
+        "concurrent.futures",
+        "threading"
     ]
     
     for module in modules:
         print(f"  ⏳ Loading {module}...")
         importlib.import_module(module)
     
-    # To preload specific classes, import them differently
-    print("  ⏳ Loading specific classes...")
-    from sklearn.neighbors import NearestNeighbors
-    from sklearn.cluster import DBSCAN
-    from scipy.sparse import lil_matrix
-    print("  ✅ Classes loaded successfully")
-    
-    # Initialize the SentenceTransformer model
-    print("  ⏳ Initializing SentenceTransformer model...")
-    get_sbert()  # This will load the model once
-    print("  ✅ Model loaded successfully")
-    
+    print(f"✅ Minimal dependencies preloaded in {time.time() - start:.2f} seconds")
 
-    
-    print(f"✅ Dependencies preloaded in {time.time() - start:.2f} seconds")
-
-# Run preloading, then hand over to functions-framework
+# Run minimal preloading, then hand over to functions-framework
 if __name__ == "__main__":
-    preload_dependencies()
+    preload_minimal_dependencies()
     
     # Determine function target from environment variable or use default
     function_target = os.environ.get("FUNCTION_TARGET", "fetch_news")
     port = int(os.environ.get("PORT", "8080"))
     
-    # Import and use functions_framework directly instead of os.system
+    # Import and use functions_framework directly
     import functions_framework
-    import importlib
-    
-    # Dynamically import the target function
-    module_path, function_name = function_target.rsplit('.', 1) if '.' in function_target else ('main', function_target)
     
     try:
+        # Dynamically import the target function
+        module_path, function_name = function_target.rsplit('.', 1) if '.' in function_target else ('main', function_target)
         module = importlib.import_module(module_path)
-        target_function = getattr(module, function_name)
         
         # Register the function with functions_framework
-        # Pass the string identifier, not the function object
         app = functions_framework.create_app(target=function_target)
         
         # Start the server using the Flask app directly
