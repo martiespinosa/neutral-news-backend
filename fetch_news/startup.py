@@ -36,14 +36,7 @@ def preload_dependencies():
     get_sbert()  # This will load the model once
     print("  ✅ Model loaded successfully")
     
-    # Initialize health check server
-    print("  ⏳ Starting health check server...")
-    try:
-        from health_check import start_health_server
-        start_health_server()
-        print("  ✅ Health check server started on port 8081")
-    except Exception as e:
-        print(f"  ⚠️ Failed to start health check server: {str(e)}")
+
     
     print(f"✅ Dependencies preloaded in {time.time() - start:.2f} seconds")
 

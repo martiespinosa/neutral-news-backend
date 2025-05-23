@@ -36,9 +36,6 @@ RUN mkdir -p /app/model && \
     model.save('/app/model'); \
     print('---> Model downloaded and saved to /app/model')"
 
-# Create health_check.py file
-COPY health_check.py /app/health_check.py
-
 # Prepare application code
 COPY . .
 
@@ -70,7 +67,7 @@ COPY --from=builder /usr/local /usr/local
 # Copy pre-downloaded model
 COPY --from=builder /app/model /app/model
 
-# Copy application code and health check
+# Copy application code
 COPY --from=builder /app /app
 
 # Create a symlink to address Cloud Run's specific path expectation
@@ -90,7 +87,7 @@ python3 /app/startup.py\n\
     chmod +x /app/run.sh
 
 # Expose ports
-EXPOSE 8080 8081
+EXPOSE 8080
 
 # Use the shell script as entrypoint
 ENTRYPOINT ["/app/run.sh"]
