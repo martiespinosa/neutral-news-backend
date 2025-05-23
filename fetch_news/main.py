@@ -59,7 +59,7 @@ def preload_ml_dependencies():
         sklearn_future.result()
         model = model_future.result()
     
-    print(f"✅ ML dependencies loaded in {time.time() - start_time:.2f} seconds")
+    print(f"✅ ML dependencies loading completed in {time.time() - start_time:.2f} seconds")
     return True
 
 def load_sentence_transformer():
